@@ -237,21 +237,22 @@ def main() -> int:
     parser.add_argument("--format", choices=("mlprogram", "nn"), default="mlprogram")
     parser.add_argument("--compute", choices=("cpu", "cpu+gpu", "all"), default="cpu")
     parser.add_argument("--out-wav", default="outputs/tts_sample.wav")
+    parser.add_argument("--model-dir", default=MODEL_DIR)
     args = parser.parse_args()
 
     os.makedirs(".coremltmp", exist_ok=True)
     os.environ["TMPDIR"] = os.path.abspath(".coremltmp")
 
     if args.format == "mlprogram":
-        dp_path = os.path.join(MODEL_DIR, "duration_predictor_mlprogram.mlpackage")
-        te_path = os.path.join(MODEL_DIR, "text_encoder_mlprogram.mlpackage")
-        ve_path = os.path.join(MODEL_DIR, "vector_estimator_mlprogram.mlpackage")
-        voc_path = os.path.join(MODEL_DIR, "vocoder_mlprogram.mlpackage")
+        dp_path = os.path.join(args.model_dir, "duration_predictor_mlprogram.mlpackage")
+        te_path = os.path.join(args.model_dir, "text_encoder_mlprogram.mlpackage")
+        ve_path = os.path.join(args.model_dir, "vector_estimator_mlprogram.mlpackage")
+        voc_path = os.path.join(args.model_dir, "vocoder_mlprogram.mlpackage")
     else:
-        dp_path = os.path.join(MODEL_DIR, "duration_predictor_fixed.mlmodel")
-        te_path = os.path.join(MODEL_DIR, "text_encoder_fixed.mlmodel")
-        ve_path = os.path.join(MODEL_DIR, "vector_estimator_fixed.mlmodel")
-        voc_path = os.path.join(MODEL_DIR, "vocoder_fixed.mlmodel")
+        dp_path = os.path.join(args.model_dir, "duration_predictor_fixed.mlmodel")
+        te_path = os.path.join(args.model_dir, "text_encoder_fixed.mlmodel")
+        ve_path = os.path.join(args.model_dir, "vector_estimator_fixed.mlmodel")
+        voc_path = os.path.join(args.model_dir, "vocoder_fixed.mlmodel")
 
     for p in (dp_path, te_path, ve_path, voc_path):
         if not os.path.exists(p):
