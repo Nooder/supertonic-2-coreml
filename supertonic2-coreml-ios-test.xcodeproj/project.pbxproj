@@ -6,6 +6,14 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		C25F039562F5B1BCE24F8FE4 /* SupertonicResources in Resources */ = {isa = PBXBuildFile; fileRef = 62C426FEB230E12E87E6CCE6 /* SupertonicResources */; };
+		62C42710B230E12E87E6CD00 /* duration_predictor_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42700B230E12E87E6CCF0 /* duration_predictor_mlprogram.mlpackage */; };
+		62C42711B230E12E87E6CD01 /* text_encoder_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42701B230E12E87E6CCF1 /* text_encoder_mlprogram.mlpackage */; };
+		62C42712B230E12E87E6CD02 /* vector_estimator_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42702B230E12E87E6CCF2 /* vector_estimator_mlprogram.mlpackage */; };
+		62C42713B230E12E87E6CD03 /* vocoder_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42703B230E12E87E6CCF3 /* vocoder_mlprogram.mlpackage */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		1266BC112F1B0DDD00C72E5E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -27,6 +35,11 @@
 		1266BC012F1B0DDC00C72E5E /* supertonic2-coreml-ios-test.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "supertonic2-coreml-ios-test.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1266BC102F1B0DDD00C72E5E /* supertonic2-coreml-ios-testTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "supertonic2-coreml-ios-testTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		1266BC1A2F1B0DDD00C72E5E /* supertonic2-coreml-ios-testUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "supertonic2-coreml-ios-testUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		62C42700B230E12E87E6CCF0 /* duration_predictor_mlprogram.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper.mlpackage; path = CoreMLModels/coreml_int8/duration_predictor_mlprogram.mlpackage; sourceTree = "<group>"; };
+		62C42701B230E12E87E6CCF1 /* text_encoder_mlprogram.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper.mlpackage; path = CoreMLModels/coreml_int8/text_encoder_mlprogram.mlpackage; sourceTree = "<group>"; };
+		62C42702B230E12E87E6CCF2 /* vector_estimator_mlprogram.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper.mlpackage; path = CoreMLModels/coreml_int8/vector_estimator_mlprogram.mlpackage; sourceTree = "<group>"; };
+		62C42703B230E12E87E6CCF3 /* vocoder_mlprogram.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = wrapper.mlpackage; path = CoreMLModels/coreml_int8/vocoder_mlprogram.mlpackage; sourceTree = "<group>"; };
+		62C426FEB230E12E87E6CCE6 /* SupertonicResources */ = {isa = PBXFileReference; lastKnownFileType = folder; path = SupertonicResources; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +88,11 @@
 		1266BBF82F1B0DDC00C72E5E = {
 			isa = PBXGroup;
 			children = (
+				62C42700B230E12E87E6CCF0 /* duration_predictor_mlprogram.mlpackage */,
+				62C42701B230E12E87E6CCF1 /* text_encoder_mlprogram.mlpackage */,
+				62C42702B230E12E87E6CCF2 /* vector_estimator_mlprogram.mlpackage */,
+				62C42703B230E12E87E6CCF3 /* vocoder_mlprogram.mlpackage */,
+				62C426FEB230E12E87E6CCE6 /* SupertonicResources */,
 				1266BC032F1B0DDC00C72E5E /* supertonic2-coreml-ios-test */,
 				1266BC132F1B0DDD00C72E5E /* supertonic2-coreml-ios-testTests */,
 				1266BC1D2F1B0DDD00C72E5E /* supertonic2-coreml-ios-testUITests */,
@@ -212,6 +230,11 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				62C42710B230E12E87E6CD00 /* duration_predictor_mlprogram.mlpackage in Resources */,
+				62C42711B230E12E87E6CD01 /* text_encoder_mlprogram.mlpackage in Resources */,
+				62C42712B230E12E87E6CD02 /* vector_estimator_mlprogram.mlpackage in Resources */,
+				62C42713B230E12E87E6CD03 /* vocoder_mlprogram.mlpackage in Resources */,
+				C25F039562F5B1BCE24F8FE4 /* SupertonicResources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -322,7 +345,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -380,7 +403,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -395,6 +418,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				"CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX9236497X;
@@ -412,9 +438,10 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nbeyzaei.supertonic2-coreml-ios-test";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = Nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -427,6 +454,9 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = NO;
+				"CODE_SIGNING_REQUIRED[sdk=iphonesimulator*]" = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX9236497X;
@@ -444,9 +474,10 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nbeyzaei.supertonic2-coreml-ios-test";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = Nonisolated;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -462,7 +493,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX9236497X;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nbeyzaei.supertonic2-coreml-ios-testTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -484,7 +515,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = RX9236497X;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.nbeyzaei.supertonic2-coreml-ios-testTests";
 				PRODUCT_NAME = "$(TARGET_NAME)";
