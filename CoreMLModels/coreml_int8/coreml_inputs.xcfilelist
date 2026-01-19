@@ -1,0 +1,8 @@
+$(SRCROOT)/CoreMLModels/coreml_int8/duration_predictor_mlprogram.mlpackage/Manifest.json
+$(SRCROOT)/CoreMLModels/coreml_int8/duration_predictor_mlprogram.mlpackage/Data/com.apple.CoreML/model.mlmodel
+$(SRCROOT)/CoreMLModels/coreml_int8/text_encoder_mlprogram.mlpackage/Manifest.json
+$(SRCROOT)/CoreMLModels/coreml_int8/text_encoder_mlprogram.mlpackage/Data/com.apple.CoreML/model.mlmodel
+$(SRCROOT)/CoreMLModels/coreml_int8/vector_estimator_mlprogram.mlpackage/Manifest.json
+$(SRCROOT)/CoreMLModels/coreml_int8/vector_estimator_mlprogram.mlpackage/Data/com.apple.CoreML/model.mlmodel
+$(SRCROOT)/CoreMLModels/coreml_int8/vocoder_mlprogram.mlpackage/Manifest.json
+$(SRCROOT)/CoreMLModels/coreml_int8/vocoder_mlprogram.mlpackage/Data/com.apple.CoreML/model.mlmodel

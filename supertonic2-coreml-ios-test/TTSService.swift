@@ -115,6 +115,24 @@ final class TTSService {
         let dp: MLMultiArray
     }
 
+    private struct ResourceBundle {
+        let voiceDir: URL
+        let coremlDir: URL?
+        let unicodeIndexer: [Int]
+        let embeddingDP: Embedding
+        let embeddingTE: Embedding
+        let sampleRate: Int
+        let baseChunkSize: Int
+        let chunkCompressFactor: Int
+    }
+
+    private struct ModelBundle {
+        let dp: MLModel
+        let te: MLModel
+        let ve: MLModel
+        let voc: MLModel
+    }
+
     private enum TTSError: Error, LocalizedError {
         case missingResource(String)
         case invalidResource(String)
@@ -155,44 +173,20 @@ final class TTSService {
     private static var compiledModelCache: [URL: URL] = [:]
 
     init(computeUnits: ComputeUnits) throws {
-        // Locate bundled resources (config, embeddings, voice styles) and CoreML models.
-        let resources = try Self.locateResources()
-        let coremlDir = try? Self.locateSubdirectory("coreml_int8", in: resources)
-        voiceDir = try Self.locateSubdirectory("voice_styles", in: resources)
-        let onnxDir = try Self.locateSubdirectory("onnx", in: resources)
-        let embeddingsDir = try Self.locateSubdirectory("embeddings", in: resources)
+        let resources = try Self.loadResources()
+        voiceDir = resources.voiceDir
+        unicodeIndexer = resources.unicodeIndexer
+        embeddingDP = resources.embeddingDP
+        embeddingTE = resources.embeddingTE
+        sampleRate = resources.sampleRate
+        baseChunkSize = resources.baseChunkSize
+        chunkCompressFactor = resources.chunkCompressFactor
 
-        // Model config drives sample rate and chunk sizing to keep inference aligned with training.
-        let configURL = onnxDir.appendingPathComponent("tts.json")
-        let cfg = try Self.loadConfig(configURL)
-        sampleRate = cfg.ae.sample_rate
-        baseChunkSize = cfg.ae.base_chunk_size
-        chunkCompressFactor = cfg.ttl.chunk_compress_factor
-
-        // Unicode indexer maps characters to model vocab IDs.
-        let indexerURL = onnxDir.appendingPathComponent("unicode_indexer.json")
-        unicodeIndexer = try Self.loadIndexer(indexerURL)
-
-        // Embedding tables are stored as raw float32 + shape metadata.
-        embeddingDP = try Self.loadEmbedding(
-            dataURL: embeddingsDir.appendingPathComponent("char_embedder_dp.fp32.bin"),
-            shapeURL: embeddingsDir.appendingPathComponent("char_embedder_dp.shape.json")
-        )
-        embeddingTE = try Self.loadEmbedding(
-            dataURL: embeddingsDir.appendingPathComponent("char_embedder_te.fp32.bin"),
-            shapeURL: embeddingsDir.appendingPathComponent("char_embedder_te.shape.json")
-        )
-
-        // Let users choose CPU/GPU/ANE tradeoffs. Low precision accumulation helps on-device speed.
-        let config = MLModelConfiguration()
-        config.computeUnits = computeUnits.coreMLValue
-        config.allowLowPrecisionAccumulationOnGPU = true
-
-        // Load the 4-stage CoreML pipeline.
-        dpModel = try Self.loadModel(named: "duration_predictor_mlprogram", coremlDir: coremlDir, configuration: config)
-        teModel = try Self.loadModel(named: "text_encoder_mlprogram", coremlDir: coremlDir, configuration: config)
-        veModel = try Self.loadModel(named: "vector_estimator_mlprogram", coremlDir: coremlDir, configuration: config)
-        vocModel = try Self.loadModel(named: "vocoder_mlprogram", coremlDir: coremlDir, configuration: config)
+        let models = try Self.loadModelsConcurrently(coremlDir: resources.coremlDir, computeUnits: computeUnits)
+        dpModel = models.dp
+        teModel = models.te
+        veModel = models.ve
+        vocModel = models.voc
 
         // Infer runtime limits from model input shapes to avoid hardcoding.
         maxTextLen = try Self.extractShape(model: dpModel, inputName: "text_mask").last ?? 300
@@ -834,6 +828,93 @@ final class TTSService {
         return Double(maxSamples) / Double(sampleRate)
     }
 
+    private static func loadResources() throws -> ResourceBundle {
+        let resources = try locateResources()
+        let coremlDir = try? locateSubdirectory("coreml_int8", in: resources)
+        let voiceDir = try locateSubdirectory("voice_styles", in: resources)
+        let onnxDir = try locateSubdirectory("onnx", in: resources)
+        let embeddingsDir = try locateSubdirectory("embeddings", in: resources)
+
+        let configURL = onnxDir.appendingPathComponent("tts.json")
+        let cfg = try loadConfig(configURL)
+
+        let indexerURL = onnxDir.appendingPathComponent("unicode_indexer.json")
+        let unicodeIndexer = try loadIndexer(indexerURL)
+
+        let embeddingDP = try loadEmbedding(
+            dataURL: embeddingsDir.appendingPathComponent("char_embedder_dp.fp32.bin"),
+            shapeURL: embeddingsDir.appendingPathComponent("char_embedder_dp.shape.json")
+        )
+        let embeddingTE = try loadEmbedding(
+            dataURL: embeddingsDir.appendingPathComponent("char_embedder_te.fp32.bin"),
+            shapeURL: embeddingsDir.appendingPathComponent("char_embedder_te.shape.json")
+        )
+
+        return ResourceBundle(
+            voiceDir: voiceDir,
+            coremlDir: coremlDir,
+            unicodeIndexer: unicodeIndexer,
+            embeddingDP: embeddingDP,
+            embeddingTE: embeddingTE,
+            sampleRate: cfg.ae.sample_rate,
+            baseChunkSize: cfg.ae.base_chunk_size,
+            chunkCompressFactor: cfg.ttl.chunk_compress_factor
+        )
+    }
+
+    private static func makeModelConfiguration(_ computeUnits: ComputeUnits) -> MLModelConfiguration {
+        let config = MLModelConfiguration()
+        config.computeUnits = computeUnits.coreMLValue
+        config.allowLowPrecisionAccumulationOnGPU = true
+        return config
+    }
+
+    private static func loadModelsConcurrently(coremlDir: URL?, computeUnits: ComputeUnits) throws -> ModelBundle {
+        let queue = DispatchQueue(label: "supertonic2.tts.model-load", attributes: .concurrent)
+        let group = DispatchGroup()
+        let lock = NSLock()
+
+        var dpResult: Swift.Result<MLModel, Error>?
+        var teResult: Swift.Result<MLModel, Error>?
+        var veResult: Swift.Result<MLModel, Error>?
+        var vocResult: Swift.Result<MLModel, Error>?
+
+        func load(_ name: String, assign: @escaping (Swift.Result<MLModel, Error>) -> Void) {
+            group.enter()
+            queue.async {
+                let result = Swift.Result<MLModel, Error> {
+                    let config = makeModelConfiguration(computeUnits)
+                    return try loadModel(named: name, coremlDir: coremlDir, configuration: config)
+                }
+                lock.lock()
+                assign(result)
+                lock.unlock()
+                group.leave()
+            }
+        }
+
+        load("duration_predictor_mlprogram") { dpResult = $0 }
+        load("text_encoder_mlprogram") { teResult = $0 }
+        load("vector_estimator_mlprogram") { veResult = $0 }
+        load("vocoder_mlprogram") { vocResult = $0 }
+
+        group.wait()
+
+        func unwrap(_ result: Swift.Result<MLModel, Error>?, name: String) throws -> MLModel {
+            guard let result else {
+                throw TTSError.invalidModel("Missing model load result for \(name).")
+            }
+            return try result.get()
+        }
+
+        return ModelBundle(
+            dp: try unwrap(dpResult, name: "duration_predictor_mlprogram"),
+            te: try unwrap(teResult, name: "text_encoder_mlprogram"),
+            ve: try unwrap(veResult, name: "vector_estimator_mlprogram"),
+            voc: try unwrap(vocResult, name: "vocoder_mlprogram")
+        )
+    }
+
     private static func locateResources() throws -> URL {
         guard let resourceURL = Bundle.main.resourceURL else {
             throw TTSError.missingResource("Bundle resource URL not found.")
@@ -847,6 +928,7 @@ final class TTSService {
         let candidates: [URL] = [
             resources.appendingPathComponent("SupertonicResources/\(name)", isDirectory: true),
             resources.appendingPathComponent("Resources/\(name)", isDirectory: true),
+            resources.appendingPathComponent("CoreMLModels/\(name)", isDirectory: true),
             resources.appendingPathComponent(name, isDirectory: true),
             resources.appendingPathComponent(name),
         ]
@@ -867,6 +949,12 @@ final class TTSService {
 
     private static func locateModelURL(named name: String, coremlDir: URL?) throws -> URL {
         // Prefer compiled models bundled into the app, then fall back to on-disk packages.
+        if let bundled = Bundle.main.url(forResource: name, withExtension: "mlmodelc", subdirectory: "CoreMLModels/coreml_int8") {
+            return bundled
+        }
+        if let bundled = Bundle.main.url(forResource: name, withExtension: "mlmodelc", subdirectory: "CoreMLModels") {
+            return bundled
+        }
         if let bundled = Bundle.main.url(forResource: name, withExtension: "mlmodelc") {
             return bundled
         }
@@ -896,16 +984,90 @@ final class TTSService {
         compiledModelCacheLock.lock()
         if let cached = compiledModelCache[url] {
             compiledModelCacheLock.unlock()
-            return cached
+            if FileManager.default.fileExists(atPath: cached.path) {
+                return cached
+            }
+            compiledModelCacheLock.lock()
+            compiledModelCache.removeValue(forKey: url)
+            compiledModelCacheLock.unlock()
+        } else {
+            compiledModelCacheLock.unlock()
         }
-        compiledModelCacheLock.unlock()
+
+        let persistentURL = try persistentCompiledModelURL(for: url)
+        if FileManager.default.fileExists(atPath: persistentURL.path) {
+            compiledModelCacheLock.lock()
+            compiledModelCache[url] = persistentURL
+            compiledModelCacheLock.unlock()
+            return persistentURL
+        }
 
         let compiled = try MLModel.compileModel(at: url)
+        do {
+            try persistCompiledModel(from: compiled, to: persistentURL, sourceName: url.deletingPathExtension().lastPathComponent)
+            if FileManager.default.fileExists(atPath: persistentURL.path) {
+                compiledModelCacheLock.lock()
+                compiledModelCache[url] = persistentURL
+                compiledModelCacheLock.unlock()
+                return persistentURL
+            }
+        } catch {
+            compiledModelCacheLock.lock()
+            compiledModelCache[url] = compiled
+            compiledModelCacheLock.unlock()
+            return compiled
+        }
 
-        compiledModelCacheLock.lock()
-        compiledModelCache[url] = compiled
-        compiledModelCacheLock.unlock()
         return compiled
+    }
+
+    private static func persistentCompiledModelURL(for source: URL) throws -> URL {
+        let cacheDir = try compiledModelCacheDirectory()
+        let baseName = source.deletingPathExtension().lastPathComponent
+        let resourceValues = try? source.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let modStamp = resourceValues?.contentModificationDate?.timeIntervalSince1970 ?? 0
+        let fileSize = resourceValues?.fileSize ?? 0
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        return cacheDir.appendingPathComponent(
+            "\(baseName)-\(version)-\(build)-\(Int(modStamp))-\(fileSize).mlmodelc",
+            isDirectory: true
+        )
+    }
+
+    private static func compiledModelCacheDirectory() throws -> URL {
+        let fm = FileManager.default
+        let base = try fm.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let bundleID = Bundle.main.bundleIdentifier ?? "supertonic2-coreml-ios-test"
+        let dir = base
+            .appendingPathComponent(bundleID, isDirectory: true)
+            .appendingPathComponent("CoreMLCompiled", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path) {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    private static func persistCompiledModel(from compiled: URL, to destination: URL, sourceName: String) throws {
+        let fm = FileManager.default
+        let parent = destination.deletingLastPathComponent()
+        if !fm.fileExists(atPath: parent.path) {
+            try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        }
+        if fm.fileExists(atPath: destination.path) {
+            try fm.removeItem(at: destination)
+        }
+        try fm.moveItem(at: compiled, to: destination)
+        cleanupStaleCompiledModels(named: sourceName, in: parent, keeping: destination)
+    }
+
+    private static func cleanupStaleCompiledModels(named baseName: String, in cacheDir: URL, keeping keepURL: URL) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil) else { return }
+        let prefix = baseName + "-"
+        for url in items where url.lastPathComponent.hasPrefix(prefix) && url != keepURL {
+            try? fm.removeItem(at: url)
+        }
     }
 
     private static func loadConfig(_ url: URL) throws -> Config {

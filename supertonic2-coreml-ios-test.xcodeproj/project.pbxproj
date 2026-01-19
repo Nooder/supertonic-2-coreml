@@ -8,10 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		C25F039562F5B1BCE24F8FE4 /* SupertonicResources in Resources */ = {isa = PBXBuildFile; fileRef = 62C426FEB230E12E87E6CCE6 /* SupertonicResources */; };
-		62C42710B230E12E87E6CD00 /* duration_predictor_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42700B230E12E87E6CCF0 /* duration_predictor_mlprogram.mlpackage */; };
-		62C42711B230E12E87E6CD01 /* text_encoder_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42701B230E12E87E6CCF1 /* text_encoder_mlprogram.mlpackage */; };
-		62C42712B230E12E87E6CD02 /* vector_estimator_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42702B230E12E87E6CCF2 /* vector_estimator_mlprogram.mlpackage */; };
-		62C42713B230E12E87E6CD03 /* vocoder_mlprogram.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = 62C42703B230E12E87E6CCF3 /* vocoder_mlprogram.mlpackage */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -119,6 +115,7 @@
 			buildPhases = (
 				1266BBFD2F1B0DDC00C72E5E /* Sources */,
 				1266BBFE2F1B0DDC00C72E5E /* Frameworks */,
+				7F0B45C32C8F4C1EBEF3A1A1 /* Compile CoreML Models */,
 				1266BBFF2F1B0DDC00C72E5E /* Resources */,
 			);
 			buildRules = (
@@ -225,15 +222,11 @@
 		};
 /* End PBXProject section */
 
-/* Begin PBXResourcesBuildPhase section */
+	/* Begin PBXResourcesBuildPhase section */
 		1266BBFF2F1B0DDC00C72E5E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				62C42710B230E12E87E6CD00 /* duration_predictor_mlprogram.mlpackage in Resources */,
-				62C42711B230E12E87E6CD01 /* text_encoder_mlprogram.mlpackage in Resources */,
-				62C42712B230E12E87E6CD02 /* vector_estimator_mlprogram.mlpackage in Resources */,
-				62C42713B230E12E87E6CD03 /* vocoder_mlprogram.mlpackage in Resources */,
 				C25F039562F5B1BCE24F8FE4 /* SupertonicResources in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -252,7 +245,31 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-/* End PBXResourcesBuildPhase section */
+	/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		7F0B45C32C8F4C1EBEF3A1A1 /* Compile CoreML Models */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"$(SRCROOT)/CoreMLModels/coreml_int8/coreml_inputs.xcfilelist",
+			);
+			name = "Compile CoreML Models";
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/CoreMLCompile.stamp",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/CoreMLModels/coreml_int8/duration_predictor_mlprogram.mlmodelc",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/CoreMLModels/coreml_int8/text_encoder_mlprogram.mlmodelc",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/CoreMLModels/coreml_int8/vector_estimator_mlprogram.mlmodelc",
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/CoreMLModels/coreml_int8/vocoder_mlprogram.mlmodelc",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nMODEL_SRC_DIR=\"${SRCROOT}/CoreMLModels/coreml_int8\"\nMODEL_DST_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/CoreMLModels/coreml_int8\"\nSTAMP_FILE=\"${DERIVED_FILE_DIR}/CoreMLCompile.stamp\"\nBUNDLE_DIR=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\n\nif [ ! -d \"$MODEL_SRC_DIR\" ]; then\n  echo \"warning: CoreML model source dir not found: $MODEL_SRC_DIR\"\n  exit 0\nfi\n\nmkdir -p \"$MODEL_DST_DIR\"\nmkdir -p \"$(dirname \"$STAMP_FILE\")\"\n\nfor model in \"$MODEL_SRC_DIR\"/*.mlpackage \"$MODEL_SRC_DIR\"/*.mlmodel; do\n  [ -e \"$model\" ] || continue\n  name=$(basename \"$model\")\n  name=\"${name%.*}\"\n  dest=\"$MODEL_DST_DIR/${name}.mlmodelc\"\n  if [ -d \"$dest\" ] && [ \"$dest\" -nt \"$model\" ]; then\n    echo \"CoreML model up to date: $name\"\n    continue\n  fi\n  echo \"Compiling CoreML model: $model\"\n  xcrun coremlcompiler compile \"$model\" \"$MODEL_DST_DIR\"\ndone\n\nmissing=0\nfor name in duration_predictor_mlprogram text_encoder_mlprogram vector_estimator_mlprogram vocoder_mlprogram; do\n  dest=\"$MODEL_DST_DIR/${name}.mlmodelc\"\n  if [ ! -d \"$dest\" ]; then\n    echo \"error: Compiled model missing: $dest\"\n    missing=1\n    continue\n  fi\n  if ! find \"$dest\" -type f -print -quit | grep -q .; then\n    echo \"error: Compiled model empty: $dest\"\n    missing=1\n  fi\ndone\n\nif [ \"$missing\" -ne 0 ]; then\n  exit 1\nfi\n\nif find \"$BUNDLE_DIR\" -name \"*.mlpackage\" -print -quit | grep -q .; then\n  echo \"warning: .mlpackage found in app bundle. Remove CoreML packages from Resources build phase.\"\nfi\n\ncompiler_version=$(xcrun coremlcompiler --version 2>/dev/null || echo \"unknown\")\nprintf \"compiled_at=%s\\ncoremlcompiler=%s\\n\" \"$(date -u +\\\"%Y-%m-%dT%H:%M:%SZ\\\")\" \"$compiler_version\" > \"$STAMP_FILE\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		1266BBFD2F1B0DDC00C72E5E /* Sources */ = {
@@ -423,8 +440,9 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RX9236497X;
-				ENABLE_PREVIEWS = YES;
+					DEVELOPMENT_TEAM = RX9236497X;
+					ENABLE_USER_SCRIPT_SANDBOXING = NO;
+					ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -459,8 +477,9 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = RX9236497X;
-				ENABLE_PREVIEWS = YES;
+					DEVELOPMENT_TEAM = RX9236497X;
+					ENABLE_USER_SCRIPT_SANDBOXING = NO;
+					ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
