@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 from unicodedata import normalize
 
 import numpy as np
@@ -13,10 +14,8 @@ import onnx
 from onnx import numpy_helper
 
 
-MODEL_DIR = "models/supertonic-2/coreml"
-CFG_DIR = "models/supertonic-2/onnx"
-ONNX_DIR = "models/supertonic-2/onnx"
-MAX_TEXT_LEN = 300
+# Default paths are resolved at runtime to support both repo and HF bundle layouts.
+DEFAULT_MAX_TEXT_LEN = 300
 LATENT_CHANNELS = 144
 LATENT_LEN = 288
 EXPECTED_OUTPUTS = {
@@ -28,6 +27,7 @@ EXPECTED_OUTPUTS = {
 
 
 def preprocess_text(text: str, lang: str) -> str:
+    # Mirror the Swift-side text normalization so token IDs match.
     text = normalize("NFKD", text)
     emoji_pattern = re.compile(
         "[\U0001f600-\U0001f64f"
@@ -89,24 +89,25 @@ def preprocess_text(text: str, lang: str) -> str:
     return f"<{lang}>" + text + f"</{lang}>"
 
 
-def build_text_inputs(text: str, lang: str) -> tuple[np.ndarray, np.ndarray]:
-    with open(os.path.join(CFG_DIR, "unicode_indexer.json"), "r", encoding="utf-8") as f:
+def build_text_inputs(text: str, lang: str, cfg_dir: Path) -> tuple[np.ndarray, np.ndarray]:
+    with open(cfg_dir / "unicode_indexer.json", "r", encoding="utf-8") as f:
         indexer = json.load(f)
     text = preprocess_text(text, lang)
     ids = [indexer[ord(ch)] for ch in text]
     if any(i < 0 for i in ids):
         raise ValueError("Text contains unsupported characters.")
-    text_ids = np.zeros((1, MAX_TEXT_LEN), dtype=np.int32)
+    text_ids = np.zeros((1, DEFAULT_MAX_TEXT_LEN), dtype=np.int32)
     text_ids[0, : len(ids)] = np.array(ids, dtype=np.int32)
-    text_mask = np.zeros((1, 1, MAX_TEXT_LEN), dtype=np.float32)
+    text_mask = np.zeros((1, 1, DEFAULT_MAX_TEXT_LEN), dtype=np.float32)
     text_mask[0, 0, : len(ids)] = 1.0
     return text_ids, text_mask
 
 
-def resolve_model_paths(format_hint: str) -> dict[str, str]:
+def resolve_model_paths(format_hint: str, model_dir: Path) -> dict[str, str]:
+    # Decide between mlprogram vs. neural network format.
     bases = ["duration_predictor", "text_encoder", "vector_estimator", "vocoder"]
-    mlprogram_paths = {b: os.path.join(MODEL_DIR, f"{b}_mlprogram.mlpackage") for b in bases}
-    nn_paths = {b: os.path.join(MODEL_DIR, f"{b}_fixed.mlmodel") for b in bases}
+    mlprogram_paths = {b: str(model_dir / f"{b}_mlprogram.mlpackage") for b in bases}
+    nn_paths = {b: str(model_dir / f"{b}_fixed.mlmodel") for b in bases}
 
     fmt = format_hint
     if fmt == "auto":
@@ -132,7 +133,8 @@ def get_model_input_names(model_path: str) -> set[str]:
     return {i.name for i in spec.description.input}
 
 
-def load_embedding_weight(onnx_path: str) -> np.ndarray:
+def load_embedding_weight(onnx_path: Path) -> np.ndarray:
+    # We only need the embedding table to synthesize text embeddings for tests.
     model = onnx.load(onnx_path)
     for init in model.graph.initializer:
         if "char_embedder.weight" in init.name and len(init.dims) == 2:
@@ -140,13 +142,15 @@ def load_embedding_weight(onnx_path: str) -> np.ndarray:
     raise RuntimeError(f"char_embedder.weight not found in {onnx_path}")
 
 
-def build_text_embed(text_ids: np.ndarray, onnx_path: str) -> np.ndarray:
+def build_text_embed(text_ids: np.ndarray, onnx_path: Path) -> np.ndarray:
+    # Produce the same [B, C, T] embedding layout as the CoreML models expect.
     weight = load_embedding_weight(onnx_path)
     embed = weight[text_ids]  # (B, T, C)
     return np.transpose(embed, (0, 2, 1)).astype(np.float32)
 
 
 def run_model(name: str, inputs: dict) -> dict:
+    # Keep tests on CPU for determinism and portability.
     model = MLModel(name, compute_units=ct.ComputeUnit.CPU_ONLY)
     return model.predict(inputs)
 
@@ -160,6 +164,31 @@ def get_output_value(outputs: dict, model_name: str) -> np.ndarray:
     return next(iter(outputs.values()))
 
 
+def resolve_default_paths(bundle_root: Path) -> tuple[Path, Path, Path]:
+    """
+    Resolve model, config, and onnx paths for either:
+    - repo layout: models/supertonic-2/...
+    - HF bundle layout: models/ and resources/
+    """
+    repo_models = bundle_root / "models" / "supertonic-2"
+    if repo_models.exists():
+        model_root = repo_models
+        cfg_dir = repo_models / "onnx"
+        onnx_dir = repo_models / "onnx"
+    else:
+        model_root = bundle_root / "models"
+        cfg_dir = bundle_root / "resources" / "onnx"
+        onnx_dir = bundle_root / "resources" / "onnx"
+
+    model_dir = model_root / "coreml"
+    if not model_dir.exists():
+        for candidate in sorted(model_root.iterdir()):
+            if candidate.is_dir() and candidate.name.startswith("coreml"):
+                model_dir = candidate
+                break
+    return model_dir, cfg_dir, onnx_dir
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Smoke test CoreML models.")
     parser.add_argument(
@@ -168,26 +197,50 @@ def main() -> int:
         default="auto",
         help="Choose CoreML model format. 'auto' prefers mlprogram if available.",
     )
+    parser.add_argument(
+        "--bundle-dir",
+        default=None,
+        help="Root folder containing models/ and resources/ (auto-detected by default).",
+    )
+    parser.add_argument("--model-dir", default=None, help="Override model variant directory.")
+    parser.add_argument("--config-dir", default=None, help="Override config directory.")
+    parser.add_argument("--onnx-dir", default=None, help="Override onnx directory.")
     args = parser.parse_args()
 
+    bundle_root = (
+        Path(args.bundle_dir).resolve()
+        if args.bundle_dir
+        else Path(__file__).resolve().parents[1]
+    )
+    model_dir, cfg_dir, onnx_dir = resolve_default_paths(bundle_root)
+    if args.model_dir:
+        model_dir = Path(args.model_dir).resolve()
+    if args.config_dir:
+        cfg_dir = Path(args.config_dir).resolve()
+    if args.onnx_dir:
+        onnx_dir = Path(args.onnx_dir).resolve()
+
+    # CoreML writes temporary compilation artifacts; keep them local and disposable.
     os.makedirs(".coremltmp", exist_ok=True)
     os.environ["TMPDIR"] = os.path.abspath(".coremltmp")
 
     failures = []
-    model_paths = resolve_model_paths(args.format)
-    text_ids, text_mask = build_text_inputs("Hello world", "en")
+    model_paths = resolve_model_paths(args.format, model_dir)
+    text_ids, text_mask = build_text_inputs("Hello world", "en", cfg_dir)
+    # Some models take text_ids directly, others expect text_embed.
     dp_inputs = get_model_input_names(model_paths["duration_predictor"])
     te_inputs = get_model_input_names(model_paths["text_encoder"])
     text_emb_out = None
     ve_out = None
     try:
+        # Duration predictor expects style + text embeddings (or ids) and returns total duration.
         dp_payload = {
             "style_dp": np.zeros((1, 8, 16), dtype=np.float32),
             "text_mask": text_mask,
         }
         if "text_embed" in dp_inputs:
             dp_payload["text_embed"] = build_text_embed(
-                text_ids, os.path.join(ONNX_DIR, "duration_predictor.onnx")
+                text_ids, onnx_dir / "duration_predictor.onnx"
             )
         else:
             dp_payload["text_ids"] = text_ids
@@ -197,13 +250,14 @@ def main() -> int:
         failures.append(("duration_predictor", str(exc)))
 
     try:
+        # Text encoder produces the conditioning embeddings for the denoiser.
         te_payload = {
             "style_ttl": np.zeros((1, 50, 256), dtype=np.float32),
             "text_mask": text_mask,
         }
         if "text_embed" in te_inputs:
             te_payload["text_embed"] = build_text_embed(
-                text_ids, os.path.join(ONNX_DIR, "text_encoder.onnx")
+                text_ids, onnx_dir / "text_encoder.onnx"
             )
         else:
             te_payload["text_ids"] = text_ids
@@ -214,8 +268,9 @@ def main() -> int:
         failures.append(("text_encoder", str(exc)))
 
     try:
+        # Vector estimator performs iterative denoising over the latent.
         if text_emb_out is None:
-            text_emb_out = np.zeros((1, 256, MAX_TEXT_LEN), dtype=np.float32)
+            text_emb_out = np.zeros((1, 256, DEFAULT_MAX_TEXT_LEN), dtype=np.float32)
         ve_out = run_model(
             model_paths["vector_estimator"],
             {
@@ -233,6 +288,7 @@ def main() -> int:
         failures.append(("vector_estimator", str(exc)))
 
     try:
+        # Vocoder converts denoised latents to waveform samples.
         if ve_out is None:
             ve_latent = np.zeros((1, LATENT_CHANNELS, LATENT_LEN), dtype=np.float32)
         else:

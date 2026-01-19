@@ -4,3 +4,12 @@
 __pycache__/
 *.pyc
 .DS_Store
+hf/models/
+hf/resources/
+hf/manifest.json
+hf/SHA256SUMS
+hf/tests/
+hf/docs/
+hf/LICENSE
+hf/config.json
+hf_publish/

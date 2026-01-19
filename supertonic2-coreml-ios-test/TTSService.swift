@@ -155,21 +155,25 @@ final class TTSService {
     private static var compiledModelCache: [URL: URL] = [:]
 
     init(computeUnits: ComputeUnits) throws {
+        // Locate bundled resources (config, embeddings, voice styles) and CoreML models.
         let resources = try Self.locateResources()
         let coremlDir = try? Self.locateSubdirectory("coreml_int8", in: resources)
         voiceDir = try Self.locateSubdirectory("voice_styles", in: resources)
         let onnxDir = try Self.locateSubdirectory("onnx", in: resources)
         let embeddingsDir = try Self.locateSubdirectory("embeddings", in: resources)
 
+        // Model config drives sample rate and chunk sizing to keep inference aligned with training.
         let configURL = onnxDir.appendingPathComponent("tts.json")
         let cfg = try Self.loadConfig(configURL)
         sampleRate = cfg.ae.sample_rate
         baseChunkSize = cfg.ae.base_chunk_size
         chunkCompressFactor = cfg.ttl.chunk_compress_factor
 
+        // Unicode indexer maps characters to model vocab IDs.
         let indexerURL = onnxDir.appendingPathComponent("unicode_indexer.json")
         unicodeIndexer = try Self.loadIndexer(indexerURL)
 
+        // Embedding tables are stored as raw float32 + shape metadata.
         embeddingDP = try Self.loadEmbedding(
             dataURL: embeddingsDir.appendingPathComponent("char_embedder_dp.fp32.bin"),
             shapeURL: embeddingsDir.appendingPathComponent("char_embedder_dp.shape.json")
@@ -179,15 +183,18 @@ final class TTSService {
             shapeURL: embeddingsDir.appendingPathComponent("char_embedder_te.shape.json")
         )
 
+        // Let users choose CPU/GPU/ANE tradeoffs. Low precision accumulation helps on-device speed.
         let config = MLModelConfiguration()
         config.computeUnits = computeUnits.coreMLValue
         config.allowLowPrecisionAccumulationOnGPU = true
 
+        // Load the 4-stage CoreML pipeline.
         dpModel = try Self.loadModel(named: "duration_predictor_mlprogram", coremlDir: coremlDir, configuration: config)
         teModel = try Self.loadModel(named: "text_encoder_mlprogram", coremlDir: coremlDir, configuration: config)
         veModel = try Self.loadModel(named: "vector_estimator_mlprogram", coremlDir: coremlDir, configuration: config)
         vocModel = try Self.loadModel(named: "vocoder_mlprogram", coremlDir: coremlDir, configuration: config)
 
+        // Infer runtime limits from model input shapes to avoid hardcoding.
         maxTextLen = try Self.extractShape(model: dpModel, inputName: "text_mask").last ?? 300
         let latentShape = try Self.extractShape(model: veModel, inputName: "noisy_latent")
         guard latentShape.count == 3 else {
@@ -223,23 +230,28 @@ final class TTSService {
         var fullAudio: [Float] = []
 
         for chunk in chunks {
+            // Normalize text into the exact token format used during training.
             let processed = preprocessText(chunk, lang: language.rawValue)
             let (textIds, textMask) = try buildTextInputs(processedText: processed, maxLen: maxTextLen)
             let textEmbedDP = try buildTextEmbed(textIds: textIds, embedding: embeddingDP, maxLen: maxTextLen)
             let textEmbedTE = try buildTextEmbed(textIds: textIds, embedding: embeddingTE, maxLen: maxTextLen)
 
+            // Stage 1: Duration predictor estimates total audio length.
             let dpStart = CFAbsoluteTimeGetCurrent()
             let duration = try runDurationPredictor(styleDP: voice.dp, textMask: textMask, textEmbed: textEmbedDP)
             timing.durationPredictor += CFAbsoluteTimeGetCurrent() - dpStart
 
+            // Stage 2: Text encoder produces linguistic embedding.
             let teStart = CFAbsoluteTimeGetCurrent()
             let textEmb = try runTextEncoder(styleTTL: voice.ttl, textMask: textMask, textEmbed: textEmbedTE)
             timing.textEncoder += CFAbsoluteTimeGetCurrent() - teStart
 
+            // Convert duration to seconds and apply user-controlled speed, with safety clamps.
             let adjustedDuration = max(Double(duration) / max(speed, 0.01), 0.05)
             let maxDuration = maxDurationSeconds()
             let clippedDuration = min(adjustedDuration, maxDuration)
 
+            // Stage 3: Sample Gaussian noise latent and denoise it with the vector estimator.
             let (noisyLatent, latentMask) = try sampleNoisyLatent(durationSeconds: clippedDuration)
             let veStart = CFAbsoluteTimeGetCurrent()
             let denoised = try runVectorEstimator(
@@ -252,10 +264,12 @@ final class TTSService {
             )
             timing.vectorEstimator += CFAbsoluteTimeGetCurrent() - veStart
 
+            // Stage 4: Vocoder turns denoised latents into waveform samples.
             let vocStart = CFAbsoluteTimeGetCurrent()
             let wav = try runVocoder(latent: denoised)
             timing.vocoder += CFAbsoluteTimeGetCurrent() - vocStart
 
+            // Trim to target duration and append with optional inter-chunk silence.
             let trimSamples = min(Int(Double(sampleRate) * clippedDuration), wav.count)
             if trimSamples > 0 {
                 if !fullAudio.isEmpty {
@@ -265,6 +279,7 @@ final class TTSService {
             }
         }
 
+        // Normalize to avoid clipping and write a temporary WAV file.
         normalizeAudio(&fullAudio)
         let tmpURL = FileManager.default.temporaryDirectory.appendingPathComponent("supertonic_tts_\(UUID().uuidString).wav")
         try writeWavFile(tmpURL.path, fullAudio, sampleRate)
@@ -308,6 +323,7 @@ final class TTSService {
         textMask: MLMultiArray,
         steps: Int
     ) throws -> MLMultiArray {
+        // Iterative denoising loop (diffusion-style).
         var latent = noisyLatent
         let totalStep = try makeScalar(Float(steps))
         for step in 0..<steps {
@@ -341,6 +357,7 @@ final class TTSService {
     // MARK: - Text Processing
 
     private func preprocessText(_ text: String, lang: String) -> String {
+        // Normalize and strip unsupported characters to match the training pipeline.
         var text = text.decomposedStringWithCompatibilityMapping
         text = text.unicodeScalars.filter { scalar in
             let value = scalar.value
@@ -561,6 +578,7 @@ final class TTSService {
     }
 
     private func buildTextInputs(processedText: String, maxLen: Int) throws -> ([Int], MLMultiArray) {
+        // Convert UTF-32 codepoints to vocab IDs and build a 1x1xT mask.
         let scalars = processedText.unicodeScalars
         var ids: [Int] = []
         ids.reserveCapacity(scalars.count)
@@ -583,6 +601,7 @@ final class TTSService {
     }
 
     private func buildTextEmbed(textIds: [Int], embedding: Embedding, maxLen: Int) throws -> MLMultiArray {
+        // Build a [1, C, T] embedding tensor from the lookup table.
         let shape = [1, embedding.dim, maxLen]
         let array = try MLMultiArray(shape: shape.map { NSNumber(value: $0) }, dataType: .float32)
         let strides = array.strides.map { Int(truncating: $0) }
@@ -612,6 +631,7 @@ final class TTSService {
     // MARK: - Latent Sampling
 
     private func sampleNoisyLatent(durationSeconds: Double) throws -> (MLMultiArray, MLMultiArray) {
+        // Map duration (seconds) to latent length, then fill with Gaussian noise.
         let wavLen = Int(durationSeconds * Double(sampleRate))
         let chunkSize = baseChunkSize * chunkCompressFactor
         let latentLen = min((wavLen + chunkSize - 1) / chunkSize, latentLenMax)
@@ -641,6 +661,7 @@ final class TTSService {
     }
 
     private func makeMask(length: Int, maxLen: Int) throws -> MLMultiArray {
+        // CoreML masks are float32 with 1 for valid positions and 0 for padding.
         let array = try MLMultiArray(shape: [1, 1, maxLen].map { NSNumber(value: $0) }, dataType: .float32)
         let strides = array.strides.map { Int(truncating: $0) }
         let ptr = array.dataPointer.bindMemory(to: Float32.self, capacity: array.count)
@@ -661,6 +682,7 @@ final class TTSService {
     // MARK: - CoreML Helpers
 
     private func predict(model: MLModel, inputs: [String: MLMultiArray]) throws -> [String: MLMultiArray] {
+        // CoreML expects MLFeatureValues keyed by input name.
         let featureInputs: [String: MLFeatureValue] = inputs.mapValues { MLFeatureValue(multiArray: $0) }
         let provider = try MLDictionaryFeatureProvider(dictionary: featureInputs)
         let output = try model.prediction(from: provider)
@@ -719,6 +741,7 @@ final class TTSService {
     // MARK: - Audio Output
 
     private func normalizeAudio(_ audio: inout [Float]) {
+        // Normalize peak to ~0.95 to avoid clipping when writing 16-bit PCM.
         guard !audio.isEmpty else { return }
         let maxAbs = audio.map { abs($0) }.max() ?? 0
         guard maxAbs > 1e-6 else { return }
@@ -820,6 +843,7 @@ final class TTSService {
 
     private static func locateSubdirectory(_ name: String, in resources: URL) throws -> URL {
         let fm = FileManager.default
+        // Support both bundled resource layouts and local dev layouts.
         let candidates: [URL] = [
             resources.appendingPathComponent("SupertonicResources/\(name)", isDirectory: true),
             resources.appendingPathComponent("Resources/\(name)", isDirectory: true),
@@ -842,6 +866,7 @@ final class TTSService {
     }
 
     private static func locateModelURL(named name: String, coremlDir: URL?) throws -> URL {
+        // Prefer compiled models bundled into the app, then fall back to on-disk packages.
         if let bundled = Bundle.main.url(forResource: name, withExtension: "mlmodelc") {
             return bundled
         }
@@ -867,6 +892,7 @@ final class TTSService {
     }
 
     private static func compileModel(at url: URL) throws -> URL {
+        // Compile and cache to avoid repeated compilation cost.
         compiledModelCacheLock.lock()
         if let cached = compiledModelCache[url] {
             compiledModelCacheLock.unlock()

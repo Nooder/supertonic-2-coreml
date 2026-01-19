@@ -16,6 +16,7 @@ final class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         self.onFinish = onFinish
         do {
             let session = AVAudioSession.sharedInstance()
+            // Keep playback audible while allowing other audio to keep playing.
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
             let data = try Data(contentsOf: url)

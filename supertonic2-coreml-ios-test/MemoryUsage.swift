@@ -10,6 +10,7 @@ import Darwin.Mach
 
 struct MemoryUsage {
     static func currentFootprintMB() -> Double? {
+        // Uses mach task info to approximate real app memory footprint (in MB).
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size) / 4
         let kerr = withUnsafeMutablePointer(to: &info) { ptr -> kern_return_t in

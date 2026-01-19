@@ -104,6 +104,7 @@ final class TTSViewModel: ObservableObject {
     private var pendingLoadReason: ModelLoadReason = .onDemand
 
     func startup() {
+        // Warm-start the app by loading voices and preloading models.
         loadVoices()
         warmUpModels()
     }
@@ -135,6 +136,7 @@ final class TTSViewModel: ObservableObject {
     }
 
     func generate() {
+        // Ensure models are loaded for the current compute units before generating.
         guard let service = service, loadedComputeUnits == computeUnits else {
             pendingGenerate = true
             requestModelLoad(reason: .onDemand)
@@ -156,6 +158,7 @@ final class TTSViewModel: ObservableObject {
             let start = Date()
             let memBefore = MemoryUsage.currentFootprintMB()
             do {
+                // Run the full TTS pipeline off the main thread.
                 let result = try service.synthesize(
                     text: text,
                     language: language,
@@ -208,6 +211,7 @@ final class TTSViewModel: ObservableObject {
     private func warmUpModels() {
         Task { @MainActor in
             guard service == nil else { return }
+            // Small delay allows the UI to settle before heavy model loads.
             try? await Task.sleep(nanoseconds: 250_000_000)
             requestModelLoad(reason: .warmup)
         }
@@ -215,6 +219,7 @@ final class TTSViewModel: ObservableObject {
 
     private func requestModelLoad(reason: ModelLoadReason) {
         if isLoadingModels {
+            // If the user changes settings during a load, queue a reload.
             if reason == .settingsChange {
                 pendingModelLoad = true
                 pendingLoadReason = reason
@@ -230,6 +235,7 @@ final class TTSViewModel: ObservableObject {
 
         Task.detached {
             do {
+                // Model creation is expensive; keep it off the main thread.
                 let service = try TTSService(computeUnits: computeUnits)
                 let elapsed = Date().timeIntervalSince(start)
                 await MainActor.run {
@@ -241,6 +247,7 @@ final class TTSViewModel: ObservableObject {
                     self.modelLoadReason = reason
                     self.modelLoadComputeUnits = computeUnits
 
+                    // Apply any queued reloads and generation requests.
                     if self.pendingModelLoad {
                         self.pendingModelLoad = false
                         let pendingReason = self.pendingLoadReason

@@ -1,0 +1,10 @@
+This repository contains CoreML exports derived from the Supertonic 2 model.
+
+Attribution:
+- Upstream model: Supertone/supertonic-2 (OpenRAIL-M)
+- Upstream sample code: supertone-inc/supertonic (MIT)
+
+Changes:
+- CoreML conversion and packaging
+- >=8-bit quantized variants
+- iOS/macOS demo app and tests (see GitHub repo)

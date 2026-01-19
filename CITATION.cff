@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: "Supertonic-2 CoreML"
+message: "If you use this CoreML package, please cite it and the upstream Supertonic 2 release."
+license: "MIT"
+authors:
+  - name: "Supertonic 2 CoreML Contributors"
+keywords:
+  - coreml
+  - tts
+  - ios
+  - macos
+  - supertonic
+references:
+  - type: software
+    title: "Supertonic 2"
+    authors:
+      - name: "Supertone Inc."
+    url: "https://huggingface.co/Supertone/supertonic-2"
+    license: "OpenRAIL-M"
